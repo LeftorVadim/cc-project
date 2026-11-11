@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import { DEMO_VESSEL } from "@/config/demoVessel";
+import { DEMO_VESSEL_DATA } from "@/config/demoVessel";
 import { INITIAL_VIEW, TILE_LAYER } from "@/config/map";
+import type { Vessel } from "@/types/vessel";
 
 // Imports Leaflet directly, so it must only be loaded through MapLoader (ssr: false).
 export default function SeaRadarMap() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedVessel, setSelectedVessel] = useState<typeof DEMO_VESSEL | null>(null);
+  const [selectedVessel, setSelectedVessel] = useState<Vessel | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -24,26 +25,27 @@ export default function SeaRadarMap() {
       maxZoom: TILE_LAYER.maxZoom,
     }).addTo(map);
 
-    const vessel = DEMO_VESSEL;
-    const iconType = vessel.courseDeg === null ? "neutral" : "course";
-    const rotation = vessel.courseDeg ?? 0;
-    const vesselIcon = L.divIcon({
-      className: "vessel-marker",
-      html: `
-        <span
-          class="vessel-marker__shape"
-          data-vessel-id="${vessel.id}"
-          data-icon="${iconType}"
-          style="transform: rotate(${rotation}deg)"
-        ></span>
-      `,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12],
-    });
+    DEMO_VESSEL_DATA.forEach((vessel) => {
+      const iconType = vessel.courseDeg === null ? "neutral" : "course";
+      const rotation = vessel.courseDeg ?? 0;
+      const vesselIcon = L.divIcon({
+        className: "vessel-marker",
+        html: `
+          <span
+            class="vessel-marker__shape"
+            data-vessel-id="${vessel.id}"
+            data-icon="${iconType}"
+            style="transform: rotate(${rotation}deg)"
+          ></span>
+        `,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
 
-    L.marker([vessel.lat, vessel.lon], { icon: vesselIcon })
-      .addTo(map)
-      .on("click", () => setSelectedVessel(vessel));
+      L.marker([vessel.lat, vessel.lon], { icon: vesselIcon })
+        .addTo(map)
+        .on("click", () => setSelectedVessel(vessel));
+    });
 
     // Leaflet tracks window resize itself; this also covers container-only size changes.
     const resizeObserver = new ResizeObserver(() => map.invalidateSize());
