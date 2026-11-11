@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { DEMO_VESSEL } from "@/config/demoVessel";
 import { INITIAL_VIEW, TILE_LAYER } from "@/config/map";
@@ -8,6 +8,7 @@ import { INITIAL_VIEW, TILE_LAYER } from "@/config/map";
 // Imports Leaflet directly, so it must only be loaded through MapLoader (ssr: false).
 export default function SeaRadarMap() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [selectedVessel, setSelectedVessel] = useState<typeof DEMO_VESSEL | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -40,7 +41,9 @@ export default function SeaRadarMap() {
       iconAnchor: [12, 12],
     });
 
-    L.marker([vessel.lat, vessel.lon], { icon: vesselIcon }).addTo(map);
+    L.marker([vessel.lat, vessel.lon], { icon: vesselIcon })
+      .addTo(map)
+      .on("click", () => setSelectedVessel(vessel));
 
     // Leaflet tracks window resize itself; this also covers container-only size changes.
     const resizeObserver = new ResizeObserver(() => map.invalidateSize());
@@ -52,5 +55,42 @@ export default function SeaRadarMap() {
     };
   }, []);
 
-  return <div ref={containerRef} className="map" />;
+  const formatSpeed = (speed: number | null) =>
+    speed === null ? "Нет данных" : `${Number(speed.toFixed(1))} уз`;
+  const formatCourse = (course: number | null) =>
+    course === null ? "Нет данных" : `${Math.round(course) % 360}°`;
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime())
+      ? "Нет данных"
+      : `${date.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false })} UTC`;
+  };
+
+  return (
+    <>
+      <div ref={containerRef} className="map" />
+      <aside className="vessel-panel">
+        <p className="source-label">Демонстрационные данные</p>
+        {selectedVessel && (
+          <section className="vessel-card" aria-label="Карточка судна">
+            <h2>{selectedVessel.id}</h2>
+            <dl>
+              <dt>Название</dt>
+              <dd>{selectedVessel.name ?? "Нет данных"}</dd>
+              <dt>Координаты</dt>
+              <dd>{`${selectedVessel.lat.toFixed(5)}, ${selectedVessel.lon.toFixed(5)}`}</dd>
+              <dt>Скорость</dt>
+              <dd>{formatSpeed(selectedVessel.speedKnots)}</dd>
+              <dt>Курс</dt>
+              <dd>{formatCourse(selectedVessel.courseDeg)}</dd>
+              <dt>Время сообщения</dt>
+              <dd>{formatTimestamp(selectedVessel.timestamp)}</dd>
+              <dt>Источник</dt>
+              <dd>{selectedVessel.source === "demo" ? "Демонстрационные данные" : "AISStream"}</dd>
+            </dl>
+          </section>
+        )}
+      </aside>
+    </>
+  );
 }

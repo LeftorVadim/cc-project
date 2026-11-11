@@ -7,7 +7,7 @@ export const DEMO_VESSEL: Vessel = {
   lat: INITIAL_VIEW.center.lat,
   lon: INITIAL_VIEW.center.lon,
   speedKnots: null,
-  courseDeg: null,
+  courseDeg: 15,
   timestamp: new Date().toISOString(),
   source: "demo",
 };
