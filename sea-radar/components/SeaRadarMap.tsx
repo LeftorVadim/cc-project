@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import L from "leaflet";
+import { DEMO_VESSEL } from "@/config/demoVessel";
 import { INITIAL_VIEW, TILE_LAYER } from "@/config/map";
 
 // Imports Leaflet directly, so it must only be loaded through MapLoader (ssr: false).
@@ -21,6 +22,25 @@ export default function SeaRadarMap() {
       attribution: TILE_LAYER.attribution,
       maxZoom: TILE_LAYER.maxZoom,
     }).addTo(map);
+
+    const vessel = DEMO_VESSEL;
+    const iconType = vessel.courseDeg === null ? "neutral" : "course";
+    const rotation = vessel.courseDeg ?? 0;
+    const vesselIcon = L.divIcon({
+      className: "vessel-marker",
+      html: `
+        <span
+          class="vessel-marker__shape"
+          data-vessel-id="${vessel.id}"
+          data-icon="${iconType}"
+          style="transform: rotate(${rotation}deg)"
+        ></span>
+      `,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12],
+    });
+
+    L.marker([vessel.lat, vessel.lon], { icon: vesselIcon }).addTo(map);
 
     // Leaflet tracks window resize itself; this also covers container-only size changes.
     const resizeObserver = new ResizeObserver(() => map.invalidateSize());
