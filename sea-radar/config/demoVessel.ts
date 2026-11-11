@@ -1,23 +1,26 @@
 import type { LatLon } from "@/config/map";
 import type { Vessel } from "@/types/vessel";
 
-type DemoVesselConfig = Omit<Vessel, "lat" | "lon" | "timestamp" | "source"> & {
+type DemoVesselConfig = Omit<Vessel, "lat" | "lon" | "courseDeg" | "timestamp" | "source"> & {
   route: readonly LatLon[];
 };
+
+export const DEMO_TICK_MS = 2000;
 
 export const DEMO_VESSELS: readonly DemoVesselConfig[] = [
   {
     id: "demo-1",
     name: "Демо-судно 1",
     speedKnots: 12.3,
-    courseDeg: 69,
     route: [
       { lat: 50.88, lon: 1.12 },
-      { lat: 50.90, lon: 1.20 },
-      { lat: 50.92, lon: 1.28 },
+      { lat: 50.895, lon: 1.18 },
+      { lat: 50.91, lon: 1.24 },
+      { lat: 50.925, lon: 1.30 },
       { lat: 50.94, lon: 1.36 },
-      { lat: 50.96, lon: 1.44 },
-      { lat: 50.98, lon: 1.52 },
+      { lat: 50.955, lon: 1.42 },
+      { lat: 50.97, lon: 1.48 },
+      { lat: 50.985, lon: 1.54 },
       { lat: 51.00, lon: 1.60 },
       { lat: 51.02, lon: 1.68 },
     ],
@@ -26,7 +29,6 @@ export const DEMO_VESSELS: readonly DemoVesselConfig[] = [
     id: "demo-2",
     name: "Демо-судно 2",
     speedKnots: 8,
-    courseDeg: 225,
     route: [
       { lat: 51.16, lon: 1.82 },
       { lat: 51.14, lon: 1.74 },
@@ -43,7 +45,6 @@ export const DEMO_VESSELS: readonly DemoVesselConfig[] = [
     id: "demo-3",
     name: "Демо-судно 3",
     speedKnots: 10.5,
-    courseDeg: 84,
     route: [
       { lat: 51.02, lon: 1.22 },
       { lat: 51.025, lon: 1.30 },
@@ -56,11 +57,3 @@ export const DEMO_VESSELS: readonly DemoVesselConfig[] = [
     ],
   },
 ];
-
-export const DEMO_VESSEL_DATA: Vessel[] = DEMO_VESSELS.map(({ route, ...vessel }) => ({
-  ...vessel,
-  lat: route[0].lat,
-  lon: route[0].lon,
-  timestamp: new Date().toISOString(),
-  source: "demo",
-}));
