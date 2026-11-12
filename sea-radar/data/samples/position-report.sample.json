@@ -1,0 +1,23 @@
+{
+  "Message": {
+    "PositionReport": {
+      "NavigationalStatus": 0,
+      "RateOfTurn": 0,
+      "Sog": 12.4,
+      "PositionAccuracy": true,
+      "Longitude": 1.42,
+      "Latitude": 50.95,
+      "Cog": 274.6,
+      "TrueHeading": 275,
+      "Timestamp": 37
+    }
+  },
+  "MessageType": "PositionReport",
+  "MetaData": {
+    "MMSI": 123456789,
+    "ShipName": "TRAINING VESSEL",
+    "latitude": 50.95,
+    "longitude": 1.42,
+    "time_utc": "2026-11-12 12:00:00.123456789 +0000 UTC"
+  }
+}
