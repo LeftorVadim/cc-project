@@ -1,8 +1,12 @@
 {
   "permissions": {
     "deny": [
-      "Read(./.env*)",
-      "Read(./**/.env*)",
+      "Read(./.env)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
+      "Read(./**/.env)",
+      "Read(./**/.env.local)",
+      "Read(./**/.env.*.local)",
       "Read(./**/secrets/**)",
       "Read(./**/*secret*)",
       "Read(./**/*credential*)",
@@ -21,8 +25,12 @@
     "enabled": true,
     "filesystem": {
       "denyRead": [
-        "./.env*",
-        "./**/.env*",
+        "./.env",
+        "./.env.local",
+        "./.env.*.local",
+        "./**/.env",
+        "./**/.env.local",
+        "./**/.env.*.local",
         "./**/secrets/**",
         "./**/*secret*",
         "./**/*credential*",
