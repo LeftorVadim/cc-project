@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env*)",
+      "Read(./**/.env*)",
+      "Read(./**/secrets/**)",
+      "Read(./**/*secret*)",
+      "Read(./**/*credential*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/*.p12)",
+      "Read(./**/*.pfx)",
+      "Read(./**/id_rsa*)",
+      "Read(./**/id_ed25519*)",
+      "Read(./**/.aws/**)",
+      "Read(./**/.ssh/**)",
+      "Read(./**/credentials.json)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "denyRead": [
+        "./.env*",
+        "./**/.env*",
+        "./**/secrets/**",
+        "./**/*secret*",
+        "./**/*credential*",
+        "./**/*.pem",
+        "./**/*.key",
+        "./**/*.p12",
+        "./**/*.pfx",
+        "./**/id_rsa*",
+        "./**/id_ed25519*",
+        "./**/.aws/**",
+        "./**/.ssh/**",
+        "./**/credentials.json"
+      ]
+    }
+  }
+}
