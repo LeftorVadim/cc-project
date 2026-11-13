@@ -32,13 +32,39 @@ function createInitialVessels(): Vessel[] {
   }));
 }
 
+type SnapshotSuccess = {
+  ok: true;
+  vessels: Vessel[];
+  collectedAt: string;
+  windowSeconds: number;
+  count: number;
+  truncated: boolean;
+  reason: "window_elapsed" | "limit_reached";
+};
+
+type SnapshotError = {
+  ok: false;
+  attemptedAt: string;
+  error: { code: string; message: string };
+};
+
+type ViewState =
+  | { kind: "idle-demo" }
+  | { kind: "loading" }
+  | { kind: "success"; snapshot: SnapshotSuccess }
+  | { kind: "empty"; snapshot: SnapshotSuccess }
+  | { kind: "error"; result: SnapshotError };
+
 export default function SeaRadarMap() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const routeIndicesRef = useRef<Record<string, number>>({});
+  const fittedSnapshotRef = useRef(false);
   const [vessels, setVessels] = useState<Vessel[]>(createInitialVessels);
   const vesselsRef = useRef(vessels);
   const [selectedVesselId, setSelectedVesselId] = useState<string | null>(null);
+  const [viewState, setViewState] = useState<ViewState>({ kind: "idle-demo" });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -48,57 +74,77 @@ export default function SeaRadarMap() {
       [INITIAL_VIEW.center.lat, INITIAL_VIEW.center.lon],
       INITIAL_VIEW.zoom,
     );
+    mapRef.current = map;
 
     L.tileLayer(TILE_LAYER.url, {
       attribution: TILE_LAYER.attribution,
       maxZoom: TILE_LAYER.maxZoom,
     }).addTo(map);
 
-    DEMO_VESSELS.forEach(({ id, route }) => {
-      const icon = L.divIcon({
-        className: "vessel-marker",
-        html: `
-          <span
-            class="vessel-marker__shape"
-            data-vessel-id="${id}"
-            data-icon="course"
-          ></span>
-        `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
-      const marker = L.marker([route[0].lat, route[0].lon], { icon })
-        .addTo(map)
-        .on("click", () => setSelectedVesselId(id));
-      markersRef.current.set(id, marker);
-    });
-
-    // Leaflet tracks window resize itself; this also covers container-only size changes.
     const resizeObserver = new ResizeObserver(() => map.invalidateSize());
     resizeObserver.observe(container);
 
     return () => {
       resizeObserver.disconnect();
       map.remove();
+      mapRef.current = null;
       markersRef.current.clear();
     };
   }, []);
 
   useEffect(() => {
-    vessels.forEach((vessel) => {
-      const marker = markersRef.current.get(vessel.id);
-      if (!marker) return;
+    const map = mapRef.current;
+    if (!map) return;
 
-      marker.setLatLng([vessel.lat, vessel.lon]);
+    const nextIds = new Set(vessels.map(({ id }) => id));
+    for (const [id, marker] of markersRef.current) {
+      if (!nextIds.has(id)) {
+        marker.remove();
+        markersRef.current.delete(id);
+      }
+    }
+
+    vessels.forEach((vessel) => {
+      let marker = markersRef.current.get(vessel.id);
+      if (!marker) {
+        const icon = L.divIcon({
+          className: "vessel-marker",
+          html: `<span class="vessel-marker__shape" data-vessel-id="${encodeURIComponent(vessel.id)}" data-icon="course"></span>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
+        marker = L.marker([vessel.lat, vessel.lon], { icon })
+          .addTo(map)
+          .on("click", () => setSelectedVesselId(vessel.id));
+        markersRef.current.set(vessel.id, marker);
+      } else {
+        marker.setLatLng([vessel.lat, vessel.lon]);
+      }
+
       const shape = marker.getElement()?.querySelector<HTMLElement>(".vessel-marker__shape");
       if (shape) {
+        shape.dataset.vesselId = vessel.id;
         shape.dataset.icon = vessel.courseDeg === null ? "neutral" : "course";
         shape.style.transform = `rotate(${vessel.courseDeg ?? 0}deg)`;
       }
     });
-  }, [vessels]);
+
+    if (
+      viewState.kind === "success" &&
+      viewState.snapshot.count > 0 &&
+      !fittedSnapshotRef.current
+    ) {
+      map.setView(
+        [INITIAL_VIEW.center.lat, INITIAL_VIEW.center.lon],
+        INITIAL_VIEW.zoom,
+      );
+      fittedSnapshotRef.current = true;
+    }
+  }, [vessels, viewState]);
 
   useEffect(() => {
+    if (viewState.kind !== "idle-demo") return;
+
     routeIndicesRef.current = Object.fromEntries(DEMO_VESSELS.map(({ id }) => [id, 0]));
     const startedAt = new Date().toISOString();
     const startedVessels = vesselsRef.current.map((vessel) => ({ ...vessel, timestamp: startedAt }));
@@ -135,7 +181,39 @@ export default function SeaRadarMap() {
     }, DEMO_TICK_MS);
 
     return () => window.clearInterval(timer);
-  }, []);
+  }, [viewState.kind]);
+
+  async function loadSnapshot() {
+    setViewState({ kind: "loading" });
+    setVessels([]);
+    vesselsRef.current = [];
+    setSelectedVesselId(null);
+
+    try {
+      const response = await fetch("/api/snapshot");
+      const result: SnapshotSuccess | SnapshotError = await response.json();
+      if (!response.ok || !result.ok) {
+        setViewState({ kind: "error", result: result as SnapshotError });
+        return;
+      }
+
+      // The API already deduplicates by MMSI; protect the map from duplicate IDs as well.
+      const uniqueVessels = [...new Map(result.vessels.map((vessel) => [vessel.id, vessel])).values()];
+      const snapshot = { ...result, vessels: uniqueVessels, count: uniqueVessels.length };
+      vesselsRef.current = uniqueVessels;
+      setVessels(uniqueVessels);
+      setViewState({ kind: uniqueVessels.length === 0 ? "empty" : "success", snapshot });
+    } catch {
+      setViewState({
+        kind: "error",
+        result: {
+          ok: false,
+          attemptedAt: new Date().toISOString(),
+          error: { code: "network_error", message: "Не удалось подключиться к источнику" },
+        },
+      });
+    }
+  }
 
   const selectedVessel = vessels.find((vessel) => vessel.id === selectedVesselId) ?? null;
   const formatSpeed = (speed: number | null) =>
@@ -148,12 +226,32 @@ export default function SeaRadarMap() {
       ? "Нет данных"
       : `${date.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false })} UTC`;
   };
+  const sourceLabel = (() => {
+    switch (viewState.kind) {
+      case "idle-demo": return "Демонстрационные данные";
+      case "loading": return "Загрузка…";
+      case "success":
+      case "empty": {
+        const { snapshot } = viewState;
+        const receivedAt = formatTimestamp(snapshot.collectedAt);
+        return `AISStream · снимок за 15 с · получен ${receivedAt} · судов: ${snapshot.count} · выборка неполная${snapshot.truncated ? " · остановлено на лимите 100" : ""}`;
+      }
+      case "error": return "Данных на карте нет";
+    }
+  })();
 
   return (
     <>
       <div ref={containerRef} className="map" />
-      <aside className="vessel-panel">
-        <p className="source-label">Демонстрационные данные</p>
+      <aside className="vessel-panel" aria-live="polite">
+        <p className="source-label">{sourceLabel}</p>
+        <button type="button" onClick={loadSnapshot} disabled={viewState.kind === "loading"}>
+          Загрузить настоящие позиции
+        </button>
+        {viewState.kind === "empty" && <p role="status">За время сбора позиции не получены</p>}
+        {viewState.kind === "error" && (
+          <p role="alert">Не удалось получить данные: {viewState.result.error.message}</p>
+        )}
         {selectedVessel && (
           <section className="vessel-card" aria-label="Карточка судна">
             <h2>{selectedVessel.id}</h2>
