@@ -1,8 +1,9 @@
 import { getAisStreamApiKey } from "@/lib/aisstream/api-key";
 import {
-  readFirstMessage,
-  SnapshotReaderError,
-} from "@/lib/aisstream/reader";
+  collectSnapshot,
+  type SnapshotResult,
+} from "@/lib/aisstream/snapshot";
+import { SnapshotReaderError } from "@/lib/aisstream/reader";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,20 +29,22 @@ function errorResponse(code: ApiErrorCode, attemptedAt: string): Response {
   );
 }
 
+function successResponse(snapshot: SnapshotResult): Response {
+  return Response.json(
+    { ok: true, ...snapshot },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 export async function GET(request: Request): Promise<Response> {
   const attemptedAt = new Date().toISOString();
   const apiKey = getAisStreamApiKey();
-
   if (!apiKey) return errorResponse("no_api_key", attemptedAt);
 
   try {
-    const raw = await readFirstMessage({ apiKey, signal: request.signal });
+    const snapshot = await collectSnapshot({ apiKey, signal: request.signal });
     if (request.signal.aborted) return new Response(null, { status: 499 });
-
-    return Response.json(
-      { ok: true, raw, collectedAt: new Date().toISOString() },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return successResponse(snapshot);
   } catch (error) {
     if (
       request.signal.aborted ||

@@ -1,8 +1,9 @@
 import "server-only";
 
 import { REGION } from "@/config/map";
+import { AISSTREAM_WINDOW_MS } from "@/lib/aisstream/config";
 
-export const AISSTREAM_WINDOW_MS = 15_000;
+export { AISSTREAM_WINDOW_MS };
 const AISSTREAM_URL = "wss://stream.aisstream.io/v0/stream";
 
 export type SnapshotErrorCode =
