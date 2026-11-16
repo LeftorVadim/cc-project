@@ -48,12 +48,28 @@ type SnapshotError = {
   error: { code: string; message: string };
 };
 
-type ViewState =
-  | { kind: "idle-demo" }
-  | { kind: "loading" }
+type DisplayedSource =
+  | { kind: "demo" }
+  | { kind: "snapshot"; snapshot: SnapshotSuccess };
+
+type AttemptResult =
   | { kind: "success"; snapshot: SnapshotSuccess }
   | { kind: "empty"; snapshot: SnapshotSuccess }
-  | { kind: "error"; result: SnapshotError };
+  | { kind: "error"; result: SnapshotError }
+  | { kind: "no-response" };
+
+function isSnapshotError(value: unknown): value is SnapshotError {
+  if (typeof value !== "object" || value === null || !("error" in value)) return false;
+  const candidate = value as Partial<SnapshotError>;
+  return (
+    candidate.ok === false &&
+    typeof candidate.attemptedAt === "string" &&
+    typeof candidate.error === "object" &&
+    candidate.error !== null &&
+    "message" in candidate.error &&
+    typeof candidate.error.message === "string"
+  );
+}
 
 export default function SeaRadarMap() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,7 +80,9 @@ export default function SeaRadarMap() {
   const [vessels, setVessels] = useState<Vessel[]>(createInitialVessels);
   const vesselsRef = useRef(vessels);
   const [selectedVesselId, setSelectedVesselId] = useState<string | null>(null);
-  const [viewState, setViewState] = useState<ViewState>({ kind: "idle-demo" });
+  const [displayedSource, setDisplayedSource] = useState<DisplayedSource>({ kind: "demo" });
+  const [isLoading, setIsLoading] = useState(false);
+  const [attemptResult, setAttemptResult] = useState<AttemptResult | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -130,8 +148,8 @@ export default function SeaRadarMap() {
     });
 
     if (
-      viewState.kind === "success" &&
-      viewState.snapshot.count > 0 &&
+      displayedSource.kind === "snapshot" &&
+      displayedSource.snapshot.count > 0 &&
       !fittedSnapshotRef.current
     ) {
       map.setView(
@@ -140,10 +158,10 @@ export default function SeaRadarMap() {
       );
       fittedSnapshotRef.current = true;
     }
-  }, [vessels, viewState]);
+  }, [vessels, displayedSource]);
 
   useEffect(() => {
-    if (viewState.kind !== "idle-demo") return;
+    if (displayedSource.kind !== "demo") return;
 
     routeIndicesRef.current = Object.fromEntries(DEMO_VESSELS.map(({ id }) => [id, 0]));
     const startedAt = new Date().toISOString();
@@ -181,37 +199,57 @@ export default function SeaRadarMap() {
     }, DEMO_TICK_MS);
 
     return () => window.clearInterval(timer);
-  }, [viewState.kind]);
+  }, [displayedSource.kind]);
 
   async function loadSnapshot() {
-    setViewState({ kind: "loading" });
-    setVessels([]);
-    vesselsRef.current = [];
-    setSelectedVesselId(null);
+    if (isLoading) return;
+    setIsLoading(true);
 
     try {
       const response = await fetch("/api/snapshot");
-      const result: SnapshotSuccess | SnapshotError = await response.json();
-      if (!response.ok || !result.ok) {
-        setViewState({ kind: "error", result: result as SnapshotError });
+      const result: unknown = await response.json();
+      if (!response.ok || typeof result !== "object" || result === null || !("ok" in result)) {
+        setAttemptResult({ kind: "no-response" });
+        return;
+      }
+      if (result.ok === false) {
+        setAttemptResult(
+          isSnapshotError(result) ? { kind: "error", result } : { kind: "no-response" },
+        );
+        return;
+      }
+      if (
+        result.ok !== true ||
+        !("vessels" in result) ||
+        !Array.isArray(result.vessels) ||
+        !("collectedAt" in result) ||
+        typeof result.collectedAt !== "string"
+      ) {
+        setAttemptResult({ kind: "no-response" });
+        return;
+      }
+      const snapshotResult = result as SnapshotSuccess;
+
+      // The API already deduplicates by MMSI; protect the map from duplicate IDs as well.
+      const uniqueVessels = [...new Map(snapshotResult.vessels.map((vessel) => [vessel.id, vessel])).values()];
+      const snapshot = { ...snapshotResult, vessels: uniqueVessels, count: uniqueVessels.length };
+      if (uniqueVessels.length === 0) {
+        setAttemptResult({ kind: "empty", snapshot });
         return;
       }
 
-      // The API already deduplicates by MMSI; protect the map from duplicate IDs as well.
-      const uniqueVessels = [...new Map(result.vessels.map((vessel) => [vessel.id, vessel])).values()];
-      const snapshot = { ...result, vessels: uniqueVessels, count: uniqueVessels.length };
       vesselsRef.current = uniqueVessels;
       setVessels(uniqueVessels);
-      setViewState({ kind: uniqueVessels.length === 0 ? "empty" : "success", snapshot });
+      setDisplayedSource({ kind: "snapshot", snapshot });
+      setAttemptResult({ kind: "success", snapshot });
+      setSelectedVesselId((selectedId) =>
+        selectedId && uniqueVessels.some(({ id }) => id === selectedId) ? selectedId : null,
+      );
     } catch {
-      setViewState({
-        kind: "error",
-        result: {
-          ok: false,
-          attemptedAt: new Date().toISOString(),
-          error: { code: "network_error", message: "Не удалось подключиться к источнику" },
-        },
-      });
+      // No usable response body: report the agreed fallback without a browser-generated time.
+      setAttemptResult({ kind: "no-response" });
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -226,32 +264,39 @@ export default function SeaRadarMap() {
       ? "Нет данных"
       : `${date.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false })} UTC`;
   };
-  const sourceLabel = (() => {
-    switch (viewState.kind) {
-      case "idle-demo": return "Демонстрационные данные";
-      case "loading": return "Загрузка…";
-      case "success":
-      case "empty": {
-        const { snapshot } = viewState;
+  const sourceLabel = displayedSource.kind === "demo"
+    ? "Демонстрационные данные"
+    : (() => {
+        const { snapshot } = displayedSource;
         const receivedAt = formatTimestamp(snapshot.collectedAt);
         return `AISStream · снимок за 15 с · получен ${receivedAt} · судов: ${snapshot.count} · выборка неполная${snapshot.truncated ? " · остановлено на лимите 100" : ""}`;
-      }
-      case "error": return "Данных на карте нет";
-    }
-  })();
+      })();
+  const attemptLabel = isLoading
+    ? "Загрузка…"
+    : attemptResult?.kind === "success"
+      ? `Попытка ${formatTimestamp(attemptResult.snapshot.collectedAt)}: получено судов: ${attemptResult.snapshot.count}`
+      : attemptResult?.kind === "empty"
+        ? `Попытка ${formatTimestamp(attemptResult.snapshot.collectedAt)}: за время сбора позиции не получены`
+        : attemptResult?.kind === "error"
+          ? `Попытка ${formatTimestamp(attemptResult.result.attemptedAt)}: не удалось получить данные: ${attemptResult.result.error.message}`
+          : attemptResult?.kind === "no-response"
+            ? "Попытка: не удалось получить данные: Нет ответа сервера"
+            : null;
 
   return (
     <>
       <div ref={containerRef} className="map" />
       <aside className="vessel-panel" aria-live="polite">
-        <p className="source-label">{sourceLabel}</p>
-        <button type="button" onClick={loadSnapshot} disabled={viewState.kind === "loading"}>
+        <button type="button" onClick={loadSnapshot} disabled={isLoading}>
           Загрузить настоящие позиции
         </button>
-        {viewState.kind === "empty" && <p role="status">За время сбора позиции не получены</p>}
-        {viewState.kind === "error" && (
-          <p role="alert">Не удалось получить данные: {viewState.result.error.message}</p>
+        <p className="source-label">{sourceLabel}</p>
+        {attemptLabel && (
+          <p className="attempt-result" role={isLoading ? "status" : "alert"}>
+            {attemptLabel}
+          </p>
         )}
+        <p className="refresh-hint">После обновления страницы снова показываются демонстрационные данные</p>
         {selectedVessel && (
           <section className="vessel-card" aria-label="Карточка судна">
             <h2>{selectedVessel.id}</h2>
